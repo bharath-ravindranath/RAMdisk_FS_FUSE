@@ -26,7 +26,7 @@ struct file_info {
 	dev_t dev;
 	char *contents;
 	time_t actual_time;
-	struct stat st;
+	//struct stat st;
 };
 
 int line=0;
