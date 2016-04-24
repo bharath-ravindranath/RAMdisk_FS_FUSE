@@ -19,13 +19,13 @@
 struct file_info {
 	char *name;
 	char *parent;
-	int type; // 0 = directory 1 = regualr file
+	// int type; // 0 = directory 1 = regualr file
 	struct file_info *next;
-	int file_size;
-	mode_t mode;
-	dev_t dev;
+	// int file_size;
+	// mode_t mode;
+	// dev_t dev;
 	char *contents;
-	time_t actual_time;
+	// time_t actual_time;
 	struct stat st;
 };
 
