@@ -12,43 +12,44 @@
 #include <limits.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <time.h>
 #include <sys/types.h>
 
 #define FILE_DATA ((struct file_info *) fuse_get_context()->private_data)
+
 enum fileType {T_DIR, T_REG};
 
-typedef enum fileType file_type;
+typedef enum fileType fileType;
 
 struct file_info {
 	char *name;
-	char *parent;
-	// int type; // 0 = directory 1 = regualr file
+	struct file_info *parent;
+	fileType type; // 0 = directory 1 = regualr file
 	struct file_info *next;
-	// int file_size;
-	// mode_t mode;
-	// dev_t dev;
 	char *contents;
-	file_type type;
-	// time_t actual_time;
 	struct stat st;
 };
 
 int line=0;
 
 
-char * getparent(struct file_info *head, char *name){
-	int i=0; char *temp = malloc(sizeof(char)*strlen(name));
-
+struct file_info * getparent(struct file_info *head, char *name){
+	int i=0; 
+	char *temp = malloc(sizeof(char)*strlen(name));
 	for(i =strlen(name)-1; i >= 0 && name[i] != '/'; i--) ;
 	if(i == 0) i++;
 	strncpy(temp, name, i);
 
-	return temp;
+	while(head != NULL ){ 
+		if(!strcmp(temp, head->name)) break;
+		printf("Each %s\n", head->name);
+		head = head->next;
+
+	}
+	return head;
 }
 
 
-int remove_from_file_info(struct file_info *head, char name[], file_type type){
+int remove_from_file_info(struct file_info *head, char name[], fileType type){
 
 	printf("%d remove_from_file_info \n", line++);
 	struct file_info *temp1, *temp2;
@@ -72,35 +73,42 @@ int remove_from_file_info(struct file_info *head, char name[], file_type type){
 }
 
 
-int add_to_file_info(struct file_info *head, char name[],mode_t mode, dev_t dev, file_type type){
+int add_to_file_info(struct file_info *head, char name[],mode_t mode, fileType type, dev_t dev){
 
 	printf("%d In add_to_file_info\n", line++);
 
 	struct file_info *new = malloc(sizeof(struct file_info));
-	struct file_info *temp;
+	struct file_info *temp, *temp2;
 
 	new->name 	= malloc(sizeof(char)*strlen(name));
-	new->parent = malloc(sizeof(char)*strlen(getparent(FILE_DATA,name)));
-	strcpy(new->parent, getparent(FILE_DATA, name));
-	fprintf(stdout, "%d Parent: %s\n",line++, new->parent);
+	new->parent = getparent(FILE_DATA,name);
+	fprintf(stdout, "%d Parent: %s\n",line++, new->parent->name);
 	fflush(stdout);
 	strcpy(new->name, name);
     new->next 			= NULL;
-    new->st.st_mode		= mode;
     new->type 			= type;
-    new->st.st_size		= 0;
-    new->st.st_atime	= time(0);
-    new->st.st_mtime	= time(0);
-    new->st.st_ctime	= time(0);
-
+    new->st.st_size 	= 0;
     new->contents		= NULL;
-   	new->st.st_dev 		= dev;
+    new->st.st_mode 	= mode;
+    new->st.st_atime 	= time(0);
+    new->st.st_ctime 	= time(0);
+    new->st.st_mtime 	= time(0);
+   	if(type == T_REG){
+   		new->st.st_dev 		= dev;
+   		new->st.st_nlink 	= 1;
+   	}
+   	else {
+   		new->st.st_dev 		= NULL;
+   		new->st.st_nlink	= 2;
+   	}
 
 	temp = head;
 	while(temp->next != NULL) temp = temp->next;
 	
 	temp->next = new;
 	
+	
+
 	return 0;
 }
 
@@ -110,7 +118,7 @@ int child_exists(struct file_info *head, const char *path){
 	printf("%d In child_exists\n", line++);
 	head = head->next;
 	
-	while(head != NULL && strcmp(path,head->parent))
+	while(head != NULL && strcmp(path,(head->parent)->name))
 		head = head->next;
 
 	if(head == NULL) return 0; 
@@ -150,42 +158,42 @@ static int ramdisk_getattr(const char *path, struct stat *stbuf){
 
 	memset(stbuf, 0, sizeof(struct stat));
 
-	printf("%d %s\n", line++,path);
 	temp = head;
 	while(temp != NULL && strcmp(temp->name, path)) temp = temp->next;
 
-	printf("%d Out of loop\n", line++);
 
 	if (temp == NULL) res = -ENOENT;
 	
-	else if(temp->type  == T_DIR){
-		printf("I am here\n");
-		stbuf->st_mode = S_IFDIR | 0755;
-		stbuf->st_nlink = 2;
-		stbuf->st_atime	= temp->st.st_atime;
-	    stbuf->st_mtime	= temp->st.st_mtime;
-	    stbuf->st_ctime	= temp->st.st_ctime;
+	else {
 		res = 0;
-	} 
-	else{
-		res = 0;
-		stbuf->st_nlink = 1;
-		//stbuf->st_dev 	= temp->dev;
-		stbuf->st_size 	= temp->st.st_size;
-		switch(temp->st.st_mode & S_IFMT){
-			case S_IFIFO: 	stbuf->st_mode 	= S_IFIFO | 0644;
-							break;
-			case S_IFCHR: 	stbuf->st_mode 	= S_IFCHR | 0644;
-							break;
-			case S_IFBLK: 	stbuf->st_mode 	= S_IFBLK | 0644;
-							break;
-			case S_IFREG: 	stbuf->st_mode 	= S_IFREG | 0644;
-							break;
-			case S_IFSOCK: 	stbuf->st_mode 	= S_IFSOCK | 0644;
-							break;
-			case S_IFLNK: 	stbuf->st_mode 	= S_IFLNK | 0644;
-							break;
-			default: res = -ENOENT;
+		//stbuf->st_nlink 	= temp->st.st_nlink;
+		stbuf->st_atime 	= temp->st.st_atime;
+    	stbuf->st_ctime 	= temp->st.st_ctime;
+    	stbuf->st_mtime 	= temp->st.st_mtime;
+		
+		if(temp->type == T_DIR)	{
+			stbuf->st_mode 		= S_IFDIR | 0755;
+			stbuf->st_nlink		= temp->st.st_nlink;
+		}
+		else{
+
+			stbuf->st_nlink	= 1;
+			stbuf->st_size 	= temp->st.st_size;
+			switch(temp->st.st_mode & S_IFMT){
+				case S_IFIFO: 	stbuf->st_mode 	= S_IFIFO | 0644;
+								break;
+				case S_IFCHR: 	stbuf->st_mode 	= S_IFCHR | 0644;
+								break;
+				case S_IFBLK: 	stbuf->st_mode 	= S_IFBLK | 0644;
+								break;
+				case S_IFREG: 	stbuf->st_mode 	= S_IFREG | 0644;
+								break;
+				case S_IFSOCK: 	stbuf->st_mode 	= S_IFSOCK | 0644;
+								break;
+				case S_IFLNK: 	stbuf->st_mode 	= S_IFLNK | 0644;
+								break;
+				default: res = -ENOENT;
+			}
 		}
 	}
 	return res;
@@ -195,7 +203,7 @@ static int ramdisk_getattr(const char *path, struct stat *stbuf){
 int ramdisk_mkdir(const char *path, mode_t mode){
 
 	if(file_exists(path)) perror(EEXIST);
-	add_to_file_info(FILE_DATA, path, mode, NULL, T_DIR);
+	add_to_file_info(FILE_DATA, path, mode, T_DIR, NULL);
 	return 0;
    
 }
@@ -210,7 +218,7 @@ int ramdisk_rmdir(const char *path){
 
     if(child_exists(head, path)) return EEXIST;
 
-    return remove_from_file_info(head, path,S_IFDIR);
+    return remove_from_file_info(head, path, T_DIR);
 
 }
 
@@ -224,19 +232,7 @@ int ramdisk_unlink(const char *path){
 
     if(!file_exists(path)) return ENOENT;
 
-    return remove_from_file_info(head, path, S_IFREG);
-}
-
-
-
-char * strip_parent(struct file_info *temp){
-	int i,j;
-	char *string = malloc(sizeof(char)*(strlen(temp->name) - strlen(temp->parent) +1));
-
-	for (i = strlen(temp->parent), j = 0; i < strlen(temp->name); i++, j++) string[j] = temp->name[i];
-
-	string[j] = '\0';
-	return string;
+    return remove_from_file_info(head, path, T_REG);
 }
 
 
@@ -249,42 +245,32 @@ int ramdisk_readdir(const char *path, void *buf, fuse_fill_dir_t filler, off_t o
 
     struct file_info *head = FILE_DATA;
 
+	filler(buf, ".", NULL, 0);
+    filler(buf, "..", NULL, 0);
 
     while(head != NULL){
-    	printf("Inside loop path:%s parent: %s current:%s\n",path, head->parent, head->name);
-		if(head->parent != NULL && !strcmp(path, head->parent)){
-			if(!strcmp(head->parent, "/")){
-				if (filler(buf, head->name + strlen(head->parent), NULL, 0) != 0){
-					printf("Error Writing into buffer\n");
-	    			return -ENOMEM;
-				}
-			}
-			else if(filler(buf, head->name + strlen(head->parent) + 1, NULL, 0) != 0){
+		if((head->parent != NULL) && (!strcmp(path, (head->parent)->name))){
+			if (filler(buf, head->name + strlen((head->parent)->name) + (!strcmp((head->parent)->name, "/")?0:1), NULL, 0) != 0){
 				printf("Error Writing into buffer\n");
-	    		return -ENOMEM;
+    			return -ENOMEM;
 			}
-	    	printf("Writing into buffer\n");
+    	printf("Writing into buffer\n");
 		}
 	    head = head->next;
     }
-
-	filler(buf, "..", NULL, 0);
-	filler(buf, ".", NULL, 0);
-
 	return 0;
-
 }
 
 int ramdisk_mknod(const char *path, mode_t mode, dev_t dev){
 	printf("%d Inside mknod\n",line++);
     int retstat;
-    char *parent_path;
+    struct file_info *parent_path = getparent(FILE_DATA, path);
 
     if(file_exists(path)) return(EEXIST);
 
-    else if((parent_path = getparent(FILE_DATA, path)) == NULL) return(ENOENT);
+    if(parent_path == NULL) return(ENOENT);
 
-	retstat = add_to_file_info(FILE_DATA, path, mode, dev, T_REG);
+	retstat = add_to_file_info(FILE_DATA, path, mode, T_REG, dev);
 
 	return 0;
 }
@@ -292,8 +278,8 @@ int ramdisk_mknod(const char *path, mode_t mode, dev_t dev){
 
 int ramdisk_read(const char *path, char *buf, size_t size, off_t offset, struct fuse_file_info *fi){
 
-	(void) offset;
-	(void) fi;
+	/*(void) offset;
+	(void) fi;*/
 
 
 	fprintf(stdout, "%d In ramdisk_read\n", line++);
@@ -303,21 +289,30 @@ int ramdisk_read(const char *path, char *buf, size_t size, off_t offset, struct 
 
     struct file_info * temp;
     temp = get_file(path);
-    if(temp != NULL && (temp->type == T_DIR) )return EISDIR;
+    if(temp != NULL && temp->type == T_DIR) return EISDIR;
 
-    if(temp->st.st_size == 0){
+    if(temp->st.st_size == 0 || size == 0){
+    	printf("In ramdisk_read inside zero\n");
     	strcpy(buf, "\0");
     	return 0;
     }
-    strcpy(buf, temp->contents);
-    return temp->st.st_size;
+    if(offset == 0 && size >= temp->st.st_size){
+    	printf("In ramdisk_read inside full read\n");
+
+    	strcpy(buf, temp->contents);
+    	return temp->st.st_size;
+    }
+    else{
+    	strncpy(buf, &(temp->contents[offset]), size);
+    	return strlen(buf);
+    }
 }
 
 
 int ramdisk_write(const char *path, const char *buf, size_t size, off_t offset, struct fuse_file_info *fi){
-    (void) offset;
+    /*(void) offset;
 	(void) fi;
-	(void) size;
+	(void) size;*/
 
 	fprintf(stdout, "%d In ramdisk_write\n", line++);
 	fflush(stdout);
@@ -327,7 +322,7 @@ int ramdisk_write(const char *path, const char *buf, size_t size, off_t offset, 
     struct file_info * temp;
     temp = get_file(path);
 
-    if(temp != NULL && (temp->type == T_DIR)) return EISDIR;
+    if(temp != NULL && temp->type == T_DIR) return EISDIR;
 
     if((head->st.st_size - strlen(buf)) < 0) return ENOSPC;
 
@@ -343,31 +338,57 @@ int ramdisk_write(const char *path, const char *buf, size_t size, off_t offset, 
     	return strlen(buf);
     }
     else{
-    	fprintf(stdout, "%d Inside write\n", line++);
+
+    	fprintf(stdout, "%d Inside write concatenate\n", line++);
     	temp->contents = (char *) realloc(temp->contents, temp->st.st_size + strlen(buf));
-    	strcat(temp->contents, buf);
+    	strncat(&(temp->contents[offset]), buf, size);
     	temp->st.st_size = strlen(temp->contents);
     	head->st.st_size -= strlen(buf);
-    	return 0;
+    	return strlen(buf);
     }
 }
 
 
 int ramdisk_open(const char *path, struct fuse_file_info *fi){
-    int retstat = 0;
+
 	(void) fi;
 	printf("%d Inside ramdisk_open\n",line++);
-	if(!file_exists(path)) return EBADF;
-    
-    return retstat;
+
+	if(!file_exists(path)) return ENOENT;
+
+	struct file_info *temp = get_file(path);
+
+	if(temp->type == T_DIR) return EISDIR;
+
+	return 0;
 }
 
 
-int ramdisk_flush(const char *path, struct fuse_file_info *fi)
-{
+int ramdisk_opendir(const char *path, struct fuse_file_info *fi){
+    (void)fi;
+    printf("%d ramdisk_opendir\n",line++);
+    
+    if(!file_exists(path)) return ENOENT;
+
+    struct file_info *temp = get_file(path);
+
+	if(temp->type != T_DIR) return ENOTDIR;
+
+	return 0;
+
+}
+
+int ramdisk_flush(const char *path, struct fuse_file_info *fi){
     printf("%d ramdisk_flush\n",line++);
     (void) fi;
 
+    if(!file_exists(path)) return ENOENT;
+
+	struct file_info *temp = get_file(path);
+
+	if(temp->type == T_DIR) return EISDIR;
+
+	temp->st.st_nlink--;
 		
     return 0;
 }
@@ -375,7 +396,7 @@ int ramdisk_flush(const char *path, struct fuse_file_info *fi)
 
 int ramdisk_truncate(const char *path, off_t newsize){
     printf("%d ramdisk_truncate newsize: %d\n",line++, newsize);
-
+    struct file_info *head = FILE_DATA;
 
 	if(!file_exists(path)) return EBADF;
 
@@ -383,22 +404,110 @@ int ramdisk_truncate(const char *path, off_t newsize){
     temp = get_file(path);
 
     if(newsize == 0){
+    	printf("%d ramdisk_truncate inside newsize 0\n",line++, newsize);
+
     	free(temp->contents);
+    	head->st.st_size -= temp->st.st_size;
     	temp->st.st_size = 0;
     	return 0;
     }
     temp->contents = (char *) realloc(temp->contents, (int)newsize);
     if(temp->st.st_size > (int)newsize) temp->contents[(int)newsize] = '\0';
+    head->st.st_size -= temp->st.st_size;
 
     temp->st.st_size = (int)newsize;
+    head->st.st_size += temp->st.st_size;
+
     return 0;
 }
 
 int ramdisk_release(const char *path, struct fuse_file_info *fi){
-    (void)fi;
-    printf("%d ramdisk_release\n",line++);
+    (void) fi;
+	printf("%d Inside ramdisk_open\n",line++);
 
-    return 0;
+	if(!file_exists(path)) return ENOENT;
+
+	struct file_info *temp = get_file(path);
+
+	if(temp->type == T_DIR) return EISDIR;
+
+	return 0;
+}
+
+
+int ramdisk_rename(const char *path, const char *newpath)
+{
+
+	fprintf(stdout, "old: %s New: %s\n",path, newpath );
+
+	if(!file_exists(path)) return ENOENT;
+
+	struct file_info *temp = get_file(path);
+
+	if(temp->type == T_REG){
+		if(file_exists(newpath)){
+			struct file_info *new = get_file(newpath);
+			if(new->type == T_DIR) return EISDIR;
+			printf("In both file exists");
+			free(temp->name);
+			temp->name = malloc(sizeof(char)*strlen(newpath));
+			strcpy(temp->name,newpath);
+			temp->parent = new->parent;
+			remove_from_file_info(FILE_DATA, newpath, T_REG);
+		}
+
+		else{
+			struct file_info *parent = getparent(FILE_DATA,newpath);
+			if(parent == NULL) return ENOENT;
+			if(parent->type = T_REG) return ENOTDIR;
+			free(temp->name);
+			temp->name = malloc(sizeof(char)*strlen(newpath));
+			strcpy(temp->name,newpath);
+			temp->parent = parent;
+		}
+	}
+
+	else{
+		if(file_exists(newpath)){
+			if((strlen(newpath) > strlen(path)) && !strncmp(path,newpath,strlen(path))){
+				return ELOOP;
+			}
+
+			struct file_info *new = get_file(newpath);
+			if(new->type == T_REG) return ENOTDIR;
+			
+			struct file_info *head = FILE_DATA;
+			while(head != NULL){
+				if(head->parent != NULL && !strcmp((head->parent)->name,newpath))
+					return ENOTEMPTY;
+			}
+			temp->name = realloc(temp->name, sizeof(char)*strlen(newpath));
+			strcpy(temp->name, newpath);
+			temp->parent = new->parent;
+			remove_from_file_info(FILE_DATA, newpath, T_DIR);
+		}		
+		else{
+			struct file_info *parent = getparent(FILE_DATA,newpath);
+			if(parent == NULL) return ENOENT;
+			if(parent->type != T_DIR) return ENOTDIR;
+			temp->name = realloc(temp->name, sizeof(char)*strlen(newpath));
+			strcpy(temp->name,newpath);
+			temp->parent = parent;
+
+			struct file_info *head = FILE_DATA;
+			while(head != NULL){
+				if((!strncmp(path, head->name, strlen(path))) && (head->name[strlen(path)] == '/')){
+					char *new_name = malloc(sizeof(char)*(strlen(temp->name)+strlen(head->name)- strlen(path)));
+					strcpy(new_name,newpath);
+					strcat(new_name,&(head->name[strlen(path)]));
+					head->name = realloc(head->name,sizeof(char)*strlen(new_name));
+					strcpy(head->name,new_name);
+				}
+				head = head->next;
+			}
+\
+	}
+	return 0;
 }
 
 
@@ -406,11 +515,18 @@ int ramdisk_utime(const char *path, struct utimbuf *ubuf){
     
     printf("%d ramdisk_utime\n",line++);
 
+	if(!file_exists(path)) return ENOENT;
+
+	struct file_info *temp = get_file(path);
+
+	temp->st.st_atime = ubuf->actime;
+	temp->st.st_mtime = ubuf->modtime;
+
    	return 0;
 }
 
 struct fuse_operations ramdisk_operations = {
-	 .getattr 	= ramdisk_getattr,
+	.getattr 	= ramdisk_getattr,
 	.open		= ramdisk_open,	
 	.flush 		= ramdisk_flush,
 	.read		= ramdisk_read,	
@@ -419,10 +535,12 @@ struct fuse_operations ramdisk_operations = {
 	.mkdir 		= ramdisk_mkdir,
 	.unlink 	= ramdisk_unlink,
 	.rmdir 		= ramdisk_rmdir,
-	/*.opendir 	= ramdisk_opendir,*/
+	.opendir 	= ramdisk_opendir,
   	.readdir 	= ramdisk_readdir,
   	.truncate 	= ramdisk_truncate,
-  	.release 	= ramdisk_release
+  	.release 	= ramdisk_release,
+  	.utime 		= ramdisk_utime,
+  	.rename 	= ramdisk_rename
 };
 
 
@@ -437,13 +555,12 @@ int main(int argc, char *argv[]){
 	strcpy(files->name, "/");
 	files->parent		= NULL;
 	files->next 		= NULL;
-    files->type			= T_DIR;
-    files->st.st_size 	= 512;
-    files->st.st_mode	= S_IFDIR | 0755;
-    files->st.st_atime	= time(0);
-    files->st.st_mtime	= time(0);
-    files->st.st_ctime	= time(0);
-
+    files->type 		= T_DIR;
+    files->st.st_atime 	= time(0);
+    files->st.st_ctime 	= time(0);
+    files->st.st_mtime 	= time(0);
+    files->st.st_size 	= atoi(argv[argc-1]);
+    
 	if ((getuid() == 0) || (geteuid() == 0)) {
 		fprintf(stderr, "Connot run RAMDISK as root\n");
 		return 1;
