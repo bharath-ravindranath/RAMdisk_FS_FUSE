@@ -31,21 +31,26 @@ struct file_info {
 
 int line=0;
 
+struct file_info * get_file(const char *path){
+	struct file_info *head = FILE_DATA;
+	printf("In get_file %s\n",path);
+	while(head != NULL && strcmp(head->name, path)) head = head->next;
+	printf("File %s\n", head->name);
+	return head;
+}
 
 struct file_info * getparent(struct file_info *head, char *name){
-	int i=0; 
-	char *temp = malloc(sizeof(char)*strlen(name));
-	for(i =strlen(name)-1; i >= 0 && name[i] != '/'; i--) ;
+	int i = strlen(name)-1, j; 
+	char *temp;
+	printf("In get parent got path: %s len %d\n",name, strlen(name));
+	for(; i >= 0 && name[i] != '/'; i--) ;
 	if(i == 0) i++;
-	strncpy(temp, name, i);
-
-	while(head != NULL ){ 
-		if(!strcmp(temp, head->name)) break;
-		printf("Each %s\n", head->name);
-		head = head->next;
-
-	}
-	return head;
+	printf("After parse %d\n", i);
+	temp = malloc(sizeof(char)*(i+1));
+	for(j=0; j < i; j++) temp[j] = name[j];
+	temp[j] = '\0';
+	printf("In get Parent: parent string: %s\n",temp);
+	return get_file(temp);
 }
 
 
@@ -140,12 +145,7 @@ int file_exists(const char  *path){
 	else return 1;
 }
 
-struct file_info * get_file(const char *path){
-	struct file_info *head = FILE_DATA;
-	printf("In get_file\n");
-	while(head != NULL && strcmp(head->name, path)) head = head->next;
-	return head;
-}
+
 
 static int ramdisk_getattr(const char *path, struct stat *stbuf){
 
@@ -268,6 +268,7 @@ int ramdisk_mknod(const char *path, mode_t mode, dev_t dev){
 
     if(file_exists(path)) return(EEXIST);
 
+    printf("Mknod parent: %s\n", parent_path->name);
     if(parent_path == NULL) return(ENOENT);
 
 	retstat = add_to_file_info(FILE_DATA, path, mode, T_REG, dev);
@@ -458,8 +459,9 @@ int ramdisk_rename(const char *path, const char *newpath)
 
 		else{
 			struct file_info *parent = getparent(FILE_DATA,newpath);
+
 			if(parent == NULL) return ENOENT;
-			if(parent->type = T_REG) return ENOTDIR;
+			if(parent->type == T_REG) return ENOTDIR;
 			free(temp->name);
 			temp->name = malloc(sizeof(char)*strlen(newpath));
 			strcpy(temp->name,newpath);
@@ -505,7 +507,7 @@ int ramdisk_rename(const char *path, const char *newpath)
 				}
 				head = head->next;
 			}
-\
+		}
 	}
 	return 0;
 }
