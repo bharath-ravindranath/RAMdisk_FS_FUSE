@@ -401,7 +401,79 @@ int ramdisk_release(const char *path, struct fuse_file_info *fi)
     return 0;
 }
 
+int ramdisk_rename(const char *path, const char *newpath)
+{
 
+	//fprintf(stdout, "old: %s New: %s\n",path, newpath );
+
+
+	file *temp = getFile(path);
+	if(temp == NULL) return -ENOENT;
+
+	file *new = getFile(newpath);
+	if(temp->type == T_REG){
+		if(new != NULL){
+			if(new->type == T_DIR) return EISDIR;
+			//printf("In both file exists");
+			free(temp->name);
+			temp->name = NULL;
+			temp->name = (char *)malloc(sizeof(char)*(strlen(newpath)+1));
+			strcpy(temp->name,newpath);
+			temp->parent = new->parent;
+			removeFile(newpath, T_REG, new);
+		}
+
+		else{
+			file *parent = getParent(newpath);
+
+			if(parent == NULL) return -ENOENT;
+			if(parent->type == T_REG) return -ENOTDIR;
+			free(temp->name);
+			temp->name = malloc(sizeof(char)*(strlen(newpath)+1));
+			strcpy(temp->name,newpath);
+			temp->parent = parent;
+		}
+	}
+
+	else{
+		if(new != NULL){
+			if((strlen(newpath) > strlen(path)) && !strncmp(path,newpath,strlen(path))){
+				return -ELOOP;
+			}
+
+			if(new->type == T_REG) return ENOTDIR;
+			
+			if(new->children > 0) return -ENOTEMPTY;
+			
+			temp->name = realloc(temp->name, sizeof(char)*(strlen(newpath)+1));
+			strcpy(temp->name, newpath);
+			temp->parent = new->parent;
+			removeFile(newpath, T_DIR, new);
+		}		
+		else{
+			file *parent = getParent(newpath);
+			if(parent == NULL) return -ENOENT;
+			if(parent->type != T_DIR && parent->type != T_ROOT) return -ENOTDIR;
+			temp->name = realloc(temp->name, sizeof(char)*(strlen(newpath)+1));
+			strcpy(temp->name,newpath);
+			temp->parent = parent;
+		}
+		file *temp1 = root->next;
+		int len = strlen(path);
+		while(temp1 != NULL){
+			if(!strcmp(temp1->parent->name, newpath)){
+				char *new_name = malloc(sizeof(char)*(strlen(temp1->name) + strlen(newpath)  - len + 1));
+				strcpy(new_name, newpath);
+				strcat(new_name, &(temp1->name[len]));
+				temp1->name = (char *) realloc((void *)temp1->name, sizeof(char)*(strlen(new_name)+1));
+				strcpy(temp1->name, new_name);
+				free(new_name);
+			}
+			temp1 = temp1->next;
+		}
+	}
+	return 0;
+}
 
 struct fuse_operations ramdisk_operations = {
 	.getattr 	= ramdisk_getattr,
@@ -416,7 +488,8 @@ struct fuse_operations ramdisk_operations = {
 	.unlink 	= ramdisk_unlink,
 	.flush 		= ramdisk_flush,
   	.truncate 	= ramdisk_truncate,
-  	.release 	= ramdisk_release
+  	.release 	= ramdisk_release,
+  	.rename 	= ramdisk_rename
 };
 
 
